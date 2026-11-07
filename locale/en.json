@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Dashboard",
+    "description": "Left sidebar dashboard plus a right-edge status card: CPU, memory, live and total token usage, per-conversation detail, a desk-pet slot and its own accent color."
+  }
+}
