@@ -2,6 +2,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 1.0.1 — 2026-11-08
+
+### 修复
+
+- 左侧面板与右侧状态卡改为共享同一个统计轮询：任一侧挂载时启动 1 秒定时器，两侧读同一份快照，不再重复请求 `/plugin-local-dashboard/stats`。
+
+
 ## 1.0.0 — 2026-11-07
 
 ### 新增

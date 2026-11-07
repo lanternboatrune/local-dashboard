@@ -1020,38 +1020,22 @@ window.__ModuleLoader__.load({
         archived = new Set();
       }
 
+      const shared = useDashStats();
+      const [view, setView] = React.useState({ data: null, rates: { total: 0, perSession: new Map() }, history: [], error: null });
+
       React.useEffect(() => {
-        let alive = true;
-        let timer = null;
+        if (!shared) return;
+        const rates = rateSince(shared, shared.time || Date.now());
+        remember(shared);
+        history = history.concat([{
+          cpu: (shared.cpu && shared.cpu.percent) || 0,
+          memory: (shared.memory && shared.memory.percent) || 0,
+          rate: rates.total,
+        }]).slice(-HISTORY);
+        setView({ data: shared, rates, history, error: null });
+      }, [shared]);
 
-        async function poll() {
-          try {
-            const response = await fetch(ROUTE, { headers: { accept: 'application/json' }, cache: 'no-store' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            if (!alive) return;
-            const rates = rateSince(data, data.time || Date.now());
-            remember(data);
-            history = history.concat([{
-              cpu: (data.cpu && data.cpu.percent) || 0,
-              memory: (data.memory && data.memory.percent) || 0,
-              rate: rates.total,
-            }]).slice(-HISTORY);
-            setState({ data, rates, history, error: null });
-          } catch (error) {
-            if (alive) setState((prev) => ({ ...prev, error: String((error && error.message) || error) }));
-          }
-        }
-
-        poll();
-        timer = setInterval(poll, POLL_MS);
-        return () => {
-          alive = false;
-          if (timer !== null) clearInterval(timer);
-        };
-      }, []);
-
-      const { data, rates, history: samples, error } = state;
+      const { data, rates, history: samples, error } = view;
       const accentStyle = accentVars(useDashAccent());
 
       if (!data) {
@@ -1452,29 +1436,43 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    /** 右侧卡片的轮询：与左侧面板共用同一份统计路由。 */
+    // 共享统计轮询：面板与右侧卡任一挂载就开一个 1s 定时器，两边读同一份快照，避免重复请求。
+    let dashStats = null;
+    let dashStatsTimer = null;
+    const dashStatsSubs = new Set();
+
+    function publishDashStats(next) {
+      if (next) dashStats = next;
+      dashStatsSubs.forEach((fn) => fn());
+    }
+
+    async function requestDashStats() {
+      try {
+        const response = await fetch(ROUTE, { cache: 'no-store', credentials: 'same-origin', headers: { accept: 'application/json' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        publishDashStats(await response.json());
+      } catch (error) {
+        // Host 半未挂载时保持上一次读数。
+      }
+    }
+
+    function subscribeDashStats(fn) {
+      dashStatsSubs.add(fn);
+      if (dashStatsTimer === null) {
+        requestDashStats();
+        dashStatsTimer = window.setInterval(requestDashStats, POLL_MS);
+      }
+      return () => {
+        dashStatsSubs.delete(fn);
+        if (dashStatsSubs.size === 0 && dashStatsTimer !== null) {
+          window.clearInterval(dashStatsTimer);
+          dashStatsTimer = null;
+        }
+      };
+    }
+
     function useDashStats() {
-      const [stats, setStats] = React.useState(null);
-      React.useEffect(() => {
-        let disposed = false;
-        const load = async () => {
-          try {
-            const response = await fetch(ROUTE, { cache: 'no-store', credentials: 'same-origin' });
-            if (!response.ok) return;
-            const next = await response.json();
-            if (!disposed) setStats(next);
-          } catch (error) {
-            // Host 半未挂载时保持上一次读数。
-          }
-        };
-        load();
-        const timer = window.setInterval(load, 2000);
-        return () => {
-          disposed = true;
-          window.clearInterval(timer);
-        };
-      }, []);
-      return stats;
+      return React.useSyncExternalStore(subscribeDashStats, () => dashStats);
     }
 
     const RC = {
