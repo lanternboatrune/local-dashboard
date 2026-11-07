@@ -1,0 +1,14 @@
+# Changelog
+
+格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## 1.0.0 — 2026-11-07
+
+### 新增
+
+- 把原 `perf-console` 控制台与 `resource-monitor` 右侧监控合并为单一包。
+- 独立强调色设置，未选择时跟随全局品牌色。
+- 个性化选项：24/12 小时制、显示秒、20 个预设城市、摄氏与华氏切换、右缘卡默认固定、五项指标显隐。
+- 桌宠接入区：未安装桌宠时显示占位提示，已接入时按状态显示立绘。
+- 设置页新增「仪表盘」一页，侧栏注册对应图标。
+- 宿主路由 `/plugin-local-dashboard/stats` 提供 CPU、内存、进程与会话 Token 数据。
