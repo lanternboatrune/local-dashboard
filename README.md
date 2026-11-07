@@ -27,8 +27,13 @@
 
 ### 设置页（`settings.section`，order 34，「仪表盘」）
 
-- 20 色强调色板 + 恢复默认。
-- 默认**跟随全局品牌色**；一旦在本插件里选色，独立存储，不再受主主题影响。
+个性化选项，全部本地保存、即时生效：
+
+- **强调色**：20 色板 + 恢复默认；默认**跟随全局品牌色**，选色后独立存储，不受主主题影响。
+- **时间显示**：12/24 小时制、显示秒（作用于月历与右缘卡时钟）。
+- **天气**：自动定位或从 20 个预设城市里选（北京/上海/广州/深圳/杭州/南京/成都/重庆/武汉/西安/苏州/天津/香港/台北/东京/新加坡/悉尼/伦敦/纽约/旧金山），温度单位 °C / °F。
+- **右侧状态卡**：默认是否钉住；CPU / 内存 / Token / 金额 / 时钟 五项可单独隐藏。
+- **全部恢复默认**：强调色与所有偏好一起复位。
 - 通过 CSS 变量 `--dash-accent` 注入，所有卡片的高亮/曲线/选中态都读它。
 
 ## 数据来源
@@ -69,8 +74,9 @@ GET /plugin-local-dashboard/stats
 ## 安装
 
 ```powershell
+git clone https://github.com/nonomint/local-dashboard.git
 & "D:\Deepseek\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add `
-  "C:\Users\wuyux\Documents\deepseek-harness\default-workspace\develop-plugins\local-dashboard"
+  "<clone 目录>\local-dashboard"
 ```
 
 依赖的 UI 包（`dsh.client.inject`）：`@deepseek-ai/dsh-client-ui-conversation`、`-settings`、`-sidebar`，随 DSH Desktop 提供。
@@ -82,6 +88,7 @@ GET /plugin-local-dashboard/stats
 | 键 | 内容 |
 |---|---|
 | `dsh.local-dashboard.v1` | 本插件强调色（`#rrggbb`），空 = 跟随全局 |
+| `dsh.local-dashboard.prefs.v1` | 个性化偏好：时钟制式/秒、城市、温度单位、默认钉住、右卡显示项 |
 | `dsh.perf-console.weather.v2` | 天气缓存（沿用旧键，升级不丢） |
 
 ## 限制
@@ -89,7 +96,7 @@ GET /plugin-local-dashboard/stats
 - 单价表写死，实际账单以控制台为准；这是**估算**。
 - 天气需要外网；无网络时只显示占位。
 - 面板只在侧栏展开时渲染；收起后停止采样。
-- 悬浮卡的「钉住」状态存在内存里，刷新后回到默认位置。
+- 悬浮卡的「钉住」默认值在设置里改；运行中手动切换只对当前窗口有效，刷新回到默认。
 - 桌宠立绘为静态 PNG/WebP，无逐帧动画（CSS 呼吸/抖动替代）。
 
 ## 排查

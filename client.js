@@ -542,6 +542,7 @@ window.__ModuleLoader__.load({
 
     function CalendarCard() {
       const [now, setNow] = React.useState(() => new Date());
+      const prefs = useDashPrefs();
 
       React.useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
@@ -552,7 +553,7 @@ window.__ModuleLoader__.load({
       const jianchu = jianchuOf(now, lunar.monthNumber);
       const yi = JIANCHU_YI[jianchu] || [];
       const buYi = JIANCHU_BUYI[jianchu] || [];
-      const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const time = formatClock(now, prefs);
 
       return h(CardShell, { title: isZh() ? '日历' : 'Calendar', span: true }, [
         h('div', { key: 'split', style: S.calSplit }, [
@@ -684,6 +685,30 @@ window.__ModuleLoader__.load({
     const WEATHER_TTL = 10 * 60 * 1000;
     const FALLBACK_PLACE = { city: '北京', latitude: 39.9042, longitude: 116.4074 };
 
+    /** 预设城市：设置页直接选，避免每次都要联网地理编码。 */
+    const CITY_PRESETS = [
+      { name: '北京', latitude: 39.9042, longitude: 116.4074 },
+      { name: '上海', latitude: 31.2304, longitude: 121.4737 },
+      { name: '广州', latitude: 23.1291, longitude: 113.2644 },
+      { name: '深圳', latitude: 22.5431, longitude: 114.0579 },
+      { name: '杭州', latitude: 30.2741, longitude: 120.1551 },
+      { name: '南京', latitude: 32.0603, longitude: 118.7969 },
+      { name: '成都', latitude: 30.5728, longitude: 104.0668 },
+      { name: '重庆', latitude: 29.5630, longitude: 106.5516 },
+      { name: '武汉', latitude: 30.5928, longitude: 114.3055 },
+      { name: '西安', latitude: 34.3416, longitude: 108.9398 },
+      { name: '苏州', latitude: 31.2989, longitude: 120.5853 },
+      { name: '天津', latitude: 39.0842, longitude: 117.2010 },
+      { name: '香港', latitude: 22.3193, longitude: 114.1694 },
+      { name: '台北', latitude: 25.0330, longitude: 121.5654 },
+      { name: '东京', latitude: 35.6762, longitude: 139.6503 },
+      { name: '新加坡', latitude: 1.3521, longitude: 103.8198 },
+      { name: '悉尼', latitude: -33.8688, longitude: 151.2093 },
+      { name: '伦敦', latitude: 51.5074, longitude: -0.1278 },
+      { name: '纽约', latitude: 40.7128, longitude: -74.0060 },
+      { name: '旧金山', latitude: 37.7749, longitude: -122.4194 },
+    ];
+
     /** WMO 天气码 → 文字 + 图标。 */
     const WMO = {
       0: ['晴', '☀️'], 1: ['大部晴朗', '🌤️'], 2: ['多云', '⛅'], 3: ['阴', '☁️'],
@@ -741,8 +766,18 @@ window.__ModuleLoader__.load({
       return { city: hit.name || name, latitude: hit.latitude, longitude: hit.longitude, at: Date.now() };
     }
 
-    /** 定位：手动指定 > 已有缓存 > ipwho.is > 北京。 */
+    /** 定位：设置页指定 > 已有缓存 > ipwho.is > 北京。 */
     async function resolvePlace() {
+      const prefCity = readPrefs().city;
+      if (prefCity) {
+        const hit = CITY_PRESETS.find((item) => item.name === prefCity);
+        if (hit) return { city: hit.name, latitude: hit.latitude, longitude: hit.longitude, at: Date.now() };
+        try {
+          return await geocodeCity(prefCity);
+        } catch (error) {
+          // 指定城市解析失败：继续走缓存/自动定位。
+        }
+      }
       const cached = readWeatherCache();
       if (cached && cached.override) return cached.override;
       if (cached && cached.place && Date.now() - (cached.place.at || 0) < 24 * 3600 * 1000) {
@@ -821,6 +856,7 @@ window.__ModuleLoader__.load({
 
     function WeatherCard() {
       const [state, setState] = React.useState({ data: null, error: null, loading: true });
+      const prefs = useDashPrefs();
 
       const load = async (force) => {
         try {
@@ -841,25 +877,24 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         let alive = true;
-        load(false);
-        const timer = setInterval(() => { if (alive) load(false); }, WEATHER_TTL);
+        const run = (force) => {
+          if (alive) load(force);
+        };
+        run(true);
+        const timer = setInterval(() => run(false), WEATHER_TTL);
         return () => {
           alive = false;
           clearInterval(timer);
         };
-      }, []);
+      }, [prefs.city, prefs.unit]);
 
       const changeCity = async () => {
-        const name = window.prompt(isZh() ? '城市名（留空恢复自动定位）' : 'City name (empty = auto)', '');
+        const name = window.prompt(isZh() ? '城市名（留空恢复自动定位）' : 'City name (empty = auto)', prefs.city);
         if (name === null) return;
         try {
           const cached = readWeatherCache() || {};
-          if (name.trim() === '') {
-            writeWeatherCache({ ...cached, override: null });
-          } else {
-            const place = await geocodeCity(name.trim());
-            writeWeatherCache({ ...cached, override: place });
-          }
+          writeWeatherCache({ ...cached, override: null });
+          setPrefs({ city: name.trim() });
           await load(true);
         } catch (error) {
           setState((prev) => ({ ...prev, error: String((error && error.message) || error) }));
@@ -909,7 +944,7 @@ window.__ModuleLoader__.load({
         // 当前
         h('div', { key: 'now', style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } }, [
           h('span', { key: 't', style: { fontSize: 40, fontWeight: 650, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 } },
-            Number.isFinite(temp) ? `${Math.round(temp)}°` : '—'),
+            Number.isFinite(temp) ? formatTemp(temp, prefs) : '—'),
           h('span', { key: 'i', style: { fontSize: 22 } }, icon),
           h('span', { key: 'd', style: { fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)' } }, text),
         ]),
@@ -921,8 +956,8 @@ window.__ModuleLoader__.load({
           title: isZh() ? '点击更换城市' : 'Click to change city',
           onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); changeCity(); } },
           style: { fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
-        }, `${data.place.city} · 最高 ${high == null ? '—' : Math.round(high)}° 最低 ${low == null ? '—' : Math.round(low)}°`
-          + (Number.isFinite(feels) ? ` · 体感 ${Math.round(feels)}°` : '')),
+        }, `${data.place.city} · 最高 ${high == null ? '—' : formatTemp(Number(high), prefs)} 最低 ${low == null ? '—' : formatTemp(Number(low), prefs)}`
+          + (Number.isFinite(feels) ? ` · 体感 ${formatTemp(feels, prefs)}` : '')),
 
         // 指标块
         h('div', { key: 'chips', style: S.chips },
@@ -940,7 +975,7 @@ window.__ModuleLoader__.load({
             return h('div', { key: index, style: S.hourCell }, [
               h('div', { key: 'h', style: S.hourLabel }, index === 0 ? (isZh() ? '现在' : 'now') : `${pad2(date.getHours())}时`),
               h('div', { key: 'i', style: { fontSize: 15, lineHeight: 1.2 } }, slotIcon),
-              h('div', { key: 't', style: S.hourTemp }, Number.isFinite(Number(slot.temp)) ? `${Math.round(slot.temp)}°` : '—'),
+              h('div', { key: 't', style: S.hourTemp }, Number.isFinite(Number(slot.temp)) ? formatTemp(Number(slot.temp), prefs) : '—'),
               h('div', { key: 'r', style: S.hourRain }, slot.rain == null ? '' : `${slot.rain}%`),
             ]);
           })),
@@ -957,11 +992,11 @@ window.__ModuleLoader__.load({
               h('span', { key: 'd', style: S.dailyDay }, dayLabel(iso, index)),
               h('span', { key: 'i', style: { fontSize: 13 } }, dayIcon),
               h('span', { key: 't', style: S.dailyTemp },
-                `${min == null ? '—' : Math.round(min)}° / ${max == null ? '—' : Math.round(max)}°`),
+                `${min == null ? '—' : formatTemp(Number(min), prefs)} / ${max == null ? '—' : formatTemp(Number(max), prefs)}`),
             ]);
           })),
 
-        h('div', { key: 'src', style: S.cardNote }, 'open-meteo · 10 分钟更新 · 点城市可改'),
+        h('div', { key: 'src', style: S.cardNote }, isZh() ? 'open-meteo · 10 分钟更新 · 设置里可改城市/单位' : 'open-meteo · updates every 10 min · city/unit in Settings'),
         ]),
       ]);
     }
@@ -1192,6 +1227,90 @@ window.__ModuleLoader__.load({
       return value ? { '--dash-accent': value } : null;
     }
 
+    // ── 仪表盘个性化偏好（时钟 / 天气 / 右侧卡） ───────────
+    const PREFS_KEY = 'dsh.local-dashboard.prefs.v1';
+
+    const DEFAULT_PREFS = {
+      hour12: false,   // 12/24 小时制
+      seconds: true,   // 是否显示秒
+      unit: 'c',       // 温度单位：c / f
+      city: '',        // 空 = 自动定位
+      pin: true,       // 右侧卡默认钉住
+      rows: { cpu: true, memory: true, tokens: true, cost: true, clock: true },
+    };
+
+    function normalizePrefs(raw) {
+      const input = raw && typeof raw === 'object' ? raw : {};
+      const rows = input.rows && typeof input.rows === 'object' ? input.rows : {};
+      return {
+        hour12: input.hour12 === true,
+        seconds: input.seconds !== false,
+        unit: input.unit === 'f' ? 'f' : 'c',
+        city: typeof input.city === 'string' ? input.city : '',
+        pin: input.pin !== false,
+        rows: {
+          cpu: rows.cpu !== false,
+          memory: rows.memory !== false,
+          tokens: rows.tokens !== false,
+          cost: rows.cost !== false,
+          clock: rows.clock !== false,
+        },
+      };
+    }
+
+    function readPrefs() {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        return normalizePrefs(raw ? JSON.parse(raw) : null);
+      } catch (error) {
+        return normalizePrefs(null);
+      }
+    }
+
+    let dashPrefs = readPrefs();
+    const dashPrefsListeners = new Set();
+
+    function setPrefs(patch) {
+      dashPrefs = normalizePrefs({ ...dashPrefs, ...patch, rows: { ...dashPrefs.rows, ...(patch.rows || {}) } });
+      try {
+        window.localStorage.setItem(PREFS_KEY, JSON.stringify(dashPrefs));
+      } catch (error) {
+        // 隐私模式/配额：静默。
+      }
+      for (const listener of Array.from(dashPrefsListeners)) listener();
+    }
+
+    function subscribePrefs(listener) {
+      dashPrefsListeners.add(listener);
+      return () => dashPrefsListeners.delete(listener);
+    }
+
+    function useDashPrefs() {
+      return React.useSyncExternalStore(subscribePrefs, () => dashPrefs);
+    }
+
+    /** 按偏好格式化时间：12/24 小时制 + 可选秒。 */
+    function formatClock(date, prefs) {
+      const pad = (value) => String(value).padStart(2, '0');
+      let hour = date.getHours();
+      let suffix = '';
+      if (prefs.hour12) {
+        const isPm = hour >= 12;
+        hour = hour % 12;
+        if (hour === 0) hour = 12;
+        suffix = isPm ? ' PM' : ' AM';
+      }
+      const body = `${pad(hour)}:${pad(date.getMinutes())}`;
+      return `${body}${prefs.seconds ? `:${pad(date.getSeconds())}` : ''}${suffix}`;
+    }
+
+    /** 摄氏度 → 展示温度。 */
+    function formatTemp(value, prefs) {
+      if (!Number.isFinite(value)) return '—';
+      const shown = prefs.unit === 'f' ? (value * 9) / 5 + 32 : value;
+      return `${Math.round(shown)}°`;
+    }
+
     // ── 仪表盘文案（右侧卡片/桌宠占位） ─────────────────────
     const MON_TEXT = {
       title: { zh: '运行状态', en: 'System' },
@@ -1228,6 +1347,24 @@ window.__ModuleLoader__.load({
       reset: { zh: '恢复默认（跟随全局）', en: 'Reset to theme color' },
       current: { zh: '当前', en: 'Current' },
       inherit: { zh: '跟随全局品牌色', en: 'theme accent' },
+      accentGroup: { zh: '强调色', en: 'Accent color' },
+      timeGroup: { zh: '时间显示', en: 'Time' },
+      hour12: { zh: '12 小时制', en: '12-hour clock' },
+      seconds: { zh: '显示秒', en: 'Show seconds' },
+      weatherGroup: { zh: '天气', en: 'Weather' },
+      city: { zh: '城市', en: 'City' },
+      autoCity: { zh: '自动定位', en: 'Auto locate' },
+      unit: { zh: '温度单位', en: 'Unit' },
+      cardGroup: { zh: '右侧状态卡', en: 'Status card' },
+      pin: { zh: '默认钉住', en: 'Pinned by default' },
+      rows: { zh: '显示项目', en: 'Visible rows' },
+      rowCpu: { zh: 'CPU', en: 'CPU' },
+      rowMemory: { zh: '内存', en: 'Memory' },
+      rowTokens: { zh: 'Token', en: 'Tokens' },
+      rowCost: { zh: '金额', en: 'Cost' },
+      rowClock: { zh: '时钟', en: 'Clock' },
+      resetAll: { zh: '全部恢复默认', en: 'Reset everything' },
+      savedNote: { zh: '改动即时生效，保存在本机。', en: 'Changes apply instantly and are stored locally.' },
     };
 
     function at(key) {
@@ -1454,11 +1591,12 @@ window.__ModuleLoader__.load({
       const stats = useDashStats();
       const store = useDashUsage();
       const accent = useDashAccent();
+      const prefs = useDashPrefs();
       const [now, setNow] = React.useState(() => new Date());
       const [open, setOpen] = React.useState(true);
-      const [pinned, setPinned] = React.useState(true);
+      const [pinned, setPinned] = React.useState(() => prefs.pin);
       const closeTimer = React.useRef(0);
-      const pinnedRef = React.useRef(true);
+      const pinnedRef = React.useRef(prefs.pin);
 
       React.useEffect(() => {
         const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -1499,8 +1637,8 @@ window.__ModuleLoader__.load({
       const sessionId = usageEntry ? usageEntry.sessionId : null;
 
       React.useEffect(() => {
-        pinnedRef.current = true;
-        setPinned(true);
+        pinnedRef.current = prefs.pin;
+        setPinned(prefs.pin);
         setOpen(true);
       }, [sessionId]);
 
@@ -1524,8 +1662,57 @@ window.__ModuleLoader__.load({
           (output / 1e6) * pricing.output
         : 0;
 
-      const time = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+      const time = formatClock(now, prefs);
       const date = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+
+      const body = [];
+      if (prefs.rows.cpu) {
+        body.push(h(RcMetric, {
+          key: 'cpu',
+          label: t('cpu'),
+          value: cpuPercent === null ? mt('unavailable') : `${cpuPercent.toFixed(1)}%`,
+          sub: cores === null ? null : mt('cores', { count: cores }),
+          percent: cpuPercent,
+          showBar: true,
+        }));
+        body.push(h('div', { key: 'gap-cpu', style: { height: '10px' } }));
+      }
+      if (prefs.rows.memory) {
+        body.push(h(RcMetric, {
+          key: 'memory',
+          label: t('memory'),
+          value: memory === null ? mt('unavailable') : `${memory.percent.toFixed(1)}%`,
+          sub: memory === null ? null : `${(memory.usedBytes / 1024 ** 3).toFixed(1)} / ${(memory.totalBytes / 1024 ** 3).toFixed(1)} GB`,
+          percent: memory === null ? null : memory.percent,
+          showBar: true,
+        }));
+      }
+      if (prefs.rows.tokens || prefs.rows.cost) {
+        body.push(h('div', { key: 'div-usage', style: RC.divider }));
+      }
+      if (prefs.rows.tokens) {
+        body.push(h(RcMetric, {
+          key: 'tokens',
+          label: mt('tokens'),
+          value: usage ? compactTokens(total) : mt('unavailable'),
+          sub: usage ? `${t('input')} ${groupThousands(input)} · ${t('output')} ${groupThousands(output)}` : null,
+        }));
+        body.push(h('div', { key: 'gap-tokens', style: { height: '8px' } }));
+      }
+      if (prefs.rows.cost) {
+        body.push(h(RcMetric, {
+          key: 'cost',
+          label: mt('cost'),
+          value: usage ? moneyText(cost, DASH_PRICING.currency) : mt('unavailable'),
+          sub: usage ? `${mt('estimate')} · ${mt(tier)}` : null,
+        }));
+      }
+      if (prefs.rows.clock) {
+        body.push(h('div', { key: 'div-clock', style: RC.divider }));
+        body.push(h('div', { key: 'clock', style: RC.clock },
+          h('div', { style: RC.time }, time),
+          h('div', { style: RC.date }, date)));
+      }
 
       const handle = h('button', {
         key: 'handle',
@@ -1563,37 +1750,7 @@ window.__ModuleLoader__.load({
               style: { ...RC.pin, ...(pinned ? RC.pinActive : null) },
               onClick: togglePin,
             }, h(RcPinIcon, { pinned }))),
-          h(RcMetric, {
-            label: t('cpu'),
-            value: cpuPercent === null ? mt('unavailable') : `${cpuPercent.toFixed(1)}%`,
-            sub: cores === null ? null : mt('cores', { count: cores }),
-            percent: cpuPercent,
-            showBar: true,
-          }),
-          h('div', { style: { height: '10px' } }),
-          h(RcMetric, {
-            label: t('memory'),
-            value: memory === null ? mt('unavailable') : `${memory.percent.toFixed(1)}%`,
-            sub: memory === null ? null : `${(memory.usedBytes / 1024 ** 3).toFixed(1)} / ${(memory.totalBytes / 1024 ** 3).toFixed(1)} GB`,
-            percent: memory === null ? null : memory.percent,
-            showBar: true,
-          }),
-          h('div', { style: RC.divider }),
-          h(RcMetric, {
-            label: mt('tokens'),
-            value: usage ? compactTokens(total) : mt('unavailable'),
-            sub: usage ? `${t('input')} ${groupThousands(input)} · ${t('output')} ${groupThousands(output)}` : null,
-          }),
-          h('div', { style: { height: '8px' } }),
-          h(RcMetric, {
-            label: mt('cost'),
-            value: usage ? moneyText(cost, DASH_PRICING.currency) : mt('unavailable'),
-            sub: usage ? `${mt('estimate')} · ${mt(tier)}` : null,
-          }),
-          h('div', { style: RC.divider }),
-          h('div', { style: RC.clock },
-            h('div', { style: RC.time }, time),
-            h('div', { style: RC.date }, date)))
+          ...body)
         : null;
 
       return h(React.Fragment, null, card, handle);
@@ -1616,34 +1773,162 @@ window.__ModuleLoader__.load({
       },
       note: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' },
       hex: { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' },
+      group: {
+        display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 16px', borderRadius: 12,
+        border: '0.5px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-2)',
+      },
+      groupHead: { margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' },
+      row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' },
+      rowLabel: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)' },
+      seg: {
+        display: 'inline-flex', padding: 2, borderRadius: 9, background: 'var(--dsw-alias-bg-layer-1)',
+        border: '0.5px solid var(--dsw-alias-border-l1)',
+      },
+      segBtn: {
+        font: 'inherit', fontSize: 12.5, lineHeight: 1, padding: '7px 12px', borderRadius: 7, cursor: 'pointer',
+        background: 'transparent', border: 'none', color: 'var(--dsw-alias-label-secondary)',
+      },
+      segOn: {
+        background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontWeight: 600,
+        boxShadow: '0 1px 2px rgba(0,0,0,.12)',
+      },
+      toggle: {
+        width: 38, height: 22, borderRadius: 999, padding: 2, cursor: 'pointer', border: 'none',
+        background: 'var(--dsw-alias-border-l1)', display: 'inline-flex', alignItems: 'center',
+        justifyContent: 'flex-start', transition: 'background .16s',
+      },
+      toggleOn: { background: 'var(--dash-accent, var(--dsw-alias-brand-primary))', justifyContent: 'flex-end' },
+      knob: { width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.2)' },
+      select: {
+        font: 'inherit', fontSize: 12.5, padding: '6px 8px', borderRadius: 8,
+        border: '0.5px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+      },
+      chips: { display: 'flex', gap: 6, flexWrap: 'wrap' },
+      chip: {
+        font: 'inherit', fontSize: 12, lineHeight: 1, padding: '6px 10px', borderRadius: 999, cursor: 'pointer',
+        background: 'transparent', border: '0.5px solid var(--dsw-alias-border-l1)',
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      chipOn: {
+        background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)',
+        borderColor: 'var(--dash-accent, var(--dsw-alias-brand-primary))',
+      },
     };
 
     function DashboardSection() {
       const current = useDashAccent();
+      const prefs = useDashPrefs();
+
+      const seg = (key, items, value, onPick) => h('div', { key, style: AS.seg },
+        items.map((item) => h('button', {
+          key: item.value,
+          type: 'button',
+          'aria-pressed': value === item.value,
+          style: value === item.value ? { ...AS.segBtn, ...AS.segOn } : AS.segBtn,
+          onClick: () => onPick(item.value),
+        }, item.label)));
+
+      const toggle = (key, on, onPick) => h('button', {
+        key,
+        type: 'button',
+        role: 'switch',
+        'aria-checked': on,
+        style: on ? { ...AS.toggle, ...AS.toggleOn } : AS.toggle,
+        onClick: () => onPick(!on),
+      }, h('span', { style: AS.knob }));
+
+      const row = (key, label, control) => h('div', { key, style: AS.row },
+        h('span', { style: AS.rowLabel }, label), control);
+
+      const group = (key, title, children) => h('section', { key, style: AS.group }, [
+        h('h4', { key: 'h', style: AS.groupHead }, title),
+        ...children,
+      ]);
+
+      const rows = [
+        ['cpu', at('rowCpu')],
+        ['memory', at('rowMemory')],
+        ['tokens', at('rowTokens')],
+        ['cost', at('rowCost')],
+        ['clock', at('rowClock')],
+      ];
 
       return h('div', { style: AS.root }, [
         h('p', { key: 'intro', style: AS.intro }, at('intro')),
-        h('div', { key: 'grid', style: AS.grid },
-          ACCENT_COLORS.map((color) => h('button', {
-            key: color.id,
-            type: 'button',
-            title: color.id,
-            'aria-label': color.id,
-            style: current === color.hex
-              ? { ...AS.swatch, ...AS.swatchOn, background: color.hex }
-              : { ...AS.swatch, background: color.hex },
-            onClick: () => setDashAccent(color.hex),
-          }))),
-        h('div', { key: 'foot', style: AS.foot }, [
+
+        group('time', at('timeGroup'), [
+          row('hour12', at('hour12'), toggle('t12', prefs.hour12, (v) => setPrefs({ hour12: v }))),
+          row('seconds', at('seconds'), toggle('sec', prefs.seconds, (v) => setPrefs({ seconds: v }))),
+        ]),
+
+        group('weather', at('weatherGroup'), [
+          row('city', at('city'), h('select', {
+            key: 'sel',
+            style: AS.select,
+            value: prefs.city,
+            onChange: (event) => setPrefs({ city: event.target.value }),
+          }, [
+            h('option', { key: 'auto', value: '' }, at('autoCity')),
+            ...CITY_PRESETS.map((item) => h('option', { key: item.name, value: item.name }, item.name)),
+          ])),
+          row('unit', at('unit'), seg('unit', [
+            { value: 'c', label: '°C' },
+            { value: 'f', label: '°F' },
+          ], prefs.unit, (v) => setPrefs({ unit: v }))),
+        ]),
+
+        group('card', at('cardGroup'), [
+          row('pin', at('pin'), toggle('pin', prefs.pin, (v) => setPrefs({ pin: v }))),
+          row('rows', at('rows'), h('div', { style: AS.chips },
+            rows.map(([key, label]) => {
+              const on = prefs.rows[key];
+              return h('button', {
+                key,
+                type: 'button',
+                'aria-pressed': on,
+                style: on ? { ...AS.chip, ...AS.chipOn } : AS.chip,
+                onClick: () => setPrefs({ rows: { [key]: !on } }),
+              }, label);
+            }))),
+        ]),
+
+        group('accent', at('accentGroup'), [
+          h('div', { key: 'grid', style: AS.grid },
+            ACCENT_COLORS.map((color) => h('button', {
+              key: color.id,
+              type: 'button',
+              title: color.id,
+              'aria-label': color.id,
+              style: current === color.hex
+                ? { ...AS.swatch, ...AS.swatchOn, background: color.hex }
+                : { ...AS.swatch, background: color.hex },
+              onClick: () => setDashAccent(color.hex),
+            }))),
+          h('div', { key: 'foot', style: AS.foot }, [
+            h('button', {
+              key: 'reset',
+              type: 'button',
+              style: { ...AS.reset, opacity: current ? 1 : 0.5 },
+              disabled: !current,
+              onClick: () => setDashAccent(null),
+            }, at('reset')),
+            h('span', { key: 'label', style: AS.note }, `${at('current')} `),
+            h('span', { key: 'hex', style: AS.hex }, current || at('inherit')),
+          ]),
+        ]),
+
+        h('div', { key: 'all', style: AS.foot }, [
           h('button', {
-            key: 'reset',
+            key: 'resetAll',
             type: 'button',
-            style: { ...AS.reset, opacity: current ? 1 : 0.5 },
-            disabled: !current,
-            onClick: () => setDashAccent(null),
-          }, at('reset')),
-          h('span', { key: 'label', style: AS.note }, `${at('current')} `),
-          h('span', { key: 'hex', style: AS.hex }, current || at('inherit')),
+            style: AS.reset,
+            onClick: () => {
+              setDashAccent(null);
+              setPrefs(DEFAULT_PREFS);
+            },
+          }, at('resetAll')),
+          h('span', { key: 'saved', style: AS.note }, at('savedNote')),
         ]),
       ]);
     }
@@ -1673,6 +1958,26 @@ window.__ModuleLoader__.load({
 
     function DashboardSettings() {
       return h(DashBoundary, null, h(DashboardSection));
+    }
+
+    // 设置导航图标：仪表盘（半圆表盘 + 指针）
+    function DashboardNavIcon(props) {
+      const size = props && props.size ? props.size : 16;
+      return h('svg', {
+        viewBox: '0 0 16 16',
+        width: size,
+        height: size,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.3,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        'aria-hidden': true,
+      }, [
+        h('path', { key: 'arc', d: 'M2.4 11.9a6.1 6.1 0 0 1 11.2 0' }),
+        h('path', { key: 'needle', d: 'M8 11.9 10.9 6.9' }),
+        h('circle', { key: 'hub', cx: 8, cy: 11.9, r: 1.05, fill: 'currentColor', stroke: 'none' }),
+      ]);
     }
 
     return {
@@ -1708,6 +2013,11 @@ window.__ModuleLoader__.load({
           order: 34,
           label: () => at('title'),
         }, DashboardSettings)), 'local-dashboard: accent settings');
+
+        ctx.effect(() => ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+          name: 'settings.section.icon',
+          id: 'local-dashboard',
+        }, DashboardNavIcon)), 'local-dashboard: settings nav icon');
       },
     };
   },
