@@ -8,6 +8,7 @@
  */
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +42,39 @@ function clampPercent(value) {
 
 /** sessionId -> 已累加的 Token 与已扫描到的事件序号。 */
 const progress = new Map();
+
+/** GPU 快照：由后台每 2 秒问一次 nvidia-smi，取不到就标记 missing。 */
+const gpu = { name: null, percent: null, usedBytes: null, totalBytes: null, missing: false, at: 0 };
+let gpuBusy = false;
+
+function pollGpu() {
+  if (gpuBusy) return;
+  gpuBusy = true;
+  execFile(
+    'nvidia-smi',
+    ['--query-gpu=utilization.gpu,memory.used,memory.total,name', '--format=csv,noheader,nounits'],
+    { timeout: 1500, windowsHide: true },
+    (error, stdout) => {
+      gpuBusy = false;
+      if (error || !stdout) {
+        gpu.missing = true;
+        gpu.at = Date.now();
+        return;
+      }
+      const line = String(stdout).trim().split(/\r?\n/)[0] || '';
+      const parts = line.split(',').map((part) => part.trim());
+      const util = Number(parts[0]);
+      const usedMb = Number(parts[1]);
+      const totalMb = Number(parts[2]);
+      gpu.name = parts[3] || null;
+      gpu.percent = Number.isFinite(util) ? clampPercent(util) : null;
+      gpu.usedBytes = Number.isFinite(usedMb) ? usedMb * 1024 * 1024 : null;
+      gpu.totalBytes = Number.isFinite(totalMb) ? totalMb * 1024 * 1024 : null;
+      gpu.missing = false;
+      gpu.at = Date.now();
+    },
+  );
+}
 
 function emptyTally() {
   return { seq: 0, input: 0, output: 0, cached: 0, lastAt: null, turns: 0, running: false, pendingApprovals: 0 };
@@ -182,11 +216,18 @@ function snapshot(ctx) {
       heapUsedBytes: memoryUsage.heapUsed,
       uptimeSeconds: Math.round(process.uptime()),
     },
+    gpu: { ...gpu },
     ...readSessions(ctx),
   };
 }
 
 export function apply(ctx) {
+  ctx.effect(() => {
+    pollGpu();
+    const timer = setInterval(pollGpu, 2000);
+    return () => clearInterval(timer);
+  }, 'local-dashboard: gpu sampler');
+
   ctx.inject(['webServer'], (child) => {
     child.effect(
       () => child.webServer.register({

@@ -29,6 +29,8 @@ window.__ModuleLoader__.load({
       cpu: { zh: 'CPU', en: 'CPU' },
       memory: { zh: '内存', en: 'Memory' },
       process: { zh: '进程内存', en: 'Process' },
+      gpu: { zh: 'GPU', en: 'GPU' },
+      noGpu: { zh: '未检测到', en: 'not found' },
       total: { zh: '累计 Tokens', en: 'Total tokens' },
       rate: { zh: '实时速率', en: 'Live rate' },
       sessions: { zh: '活跃会话', en: 'Live sessions' },
@@ -208,7 +210,7 @@ window.__ModuleLoader__.load({
       cardBody: { display: 'flex', flexDirection: 'column', gap: 8, flex: '1 1 auto', minHeight: 0 },
       cardFoot: { fontSize: 11.5, color: 'var(--dash-accent, var(--dsw-alias-brand-primary))' },
       cardNote: { fontSize: 10.5, color: 'var(--dsw-alias-label-quaternary)' },
-      weatherCell: { gridColumn: '2', gridRow: '2 / span 2', minHeight: 0, height: '100%', gap: 8, overflow: 'hidden' },
+      weatherCell: { gridColumn: '2', gridRow: '2 / span 2', minHeight: 0, height: '100%', gap: 8, overflow: 'hidden', boxSizing: 'border-box' },
       weatherScroll: { display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'space-between', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', paddingRight: 2 },
       chips: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 },
       chip: { border: '0.5px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: '6px 8px', minWidth: 0 },
@@ -1049,6 +1051,11 @@ window.__ModuleLoader__.load({
       const cpu = data.cpu || {};
       const memory = data.memory || {};
       const proc = data.process || {};
+      const gpu = data.gpu || {};
+      const gpuValue = gpu.percent == null ? (gpu.missing ? t('noGpu') : '—') : `${gpu.percent}%`;
+      const gpuSub = gpu.totalBytes
+        ? `${bytes(gpu.usedBytes || 0)} / ${bytes(gpu.totalBytes)}`
+        : (gpu.name || t('noGpu'));
       const allRows = data.sessions || [];
       // 归档的会话仍留在内存里（归档只是注册表标记），这里按快照的归档集合剔除。
       const rows = archived.size > 0 ? allRows.filter((row) => !archived.has(row.id)) : allRows;
@@ -1084,7 +1091,8 @@ window.__ModuleLoader__.load({
             h('div', { key: 'p1', style: S.panel }, [
               h(StatRow, { key: 'cpu', label: t('cpu'), value: `${cpu.percent == null ? '—' : cpu.percent}%`, sub: `${cpu.cores} ${t('cores')}`, percent: cpu.percent || 0 }),
               h(StatRow, { key: 'mem', label: t('memory'), value: `${memory.percent == null ? '—' : memory.percent}%`, sub: `${bytes(memory.usedBytes)} / ${bytes(memory.totalBytes)}`, percent: memory.percent || 0 }),
-              h(StatRow, { key: 'proc', label: t('process'), value: bytes(proc.rssBytes), sub: `${t('uptime')} ${duration(proc.uptimeSeconds)}`, last: true }),
+              h(StatRow, { key: 'proc', label: t('process'), value: bytes(proc.rssBytes), sub: `${t('uptime')} ${duration(proc.uptimeSeconds)}` }),
+              h(StatRow, { key: 'gpu', label: t('gpu'), value: gpuValue, sub: gpuSub, percent: gpu.percent == null ? 0 : gpu.percent, last: true }),
             ]),
             h('div', { key: 'p2', style: { ...S.panel, flex: '1 1 auto', minHeight: 0 } }, [
               h(StatRow, { key: 'tot', label: t('total'), value: compact(totals.total), sub: `${t('input')} ${compact(totals.input)} · ${t('output')} ${compact(totals.output)}` }),

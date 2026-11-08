@@ -2,6 +2,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## Unreleased
+
+### 新增
+
+- 左侧指标区新增 GPU 占用：宿主每 2 秒调用一次 `nvidia-smi`，显示利用率与显存用量；没有可用显卡时显示「未检测到」。
+
+### 修复
+
+- 天气卡底部框线缺失：卡片按内容盒计算 100% 高度时，内边距与边框被挤到网格区域外，改为 `border-box`。
+
 ## 1.0.1 — 2026-11-08
 
 ### 修复
