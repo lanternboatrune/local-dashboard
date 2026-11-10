@@ -1,6 +1,6 @@
 {
   "name": "@local/local-dashboard",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "Left sidebar dashboard plus right-edge status card: CPU, memory, token totals, per-session usage, desk-pet slot, weather and a plugin-local accent color.",
   "type": "module",
