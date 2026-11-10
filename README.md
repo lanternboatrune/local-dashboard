@@ -3,7 +3,7 @@
 把「控制台」与「右侧资源监控」合成一个插件：**侧栏面板**看历史与明细，**右缘悬浮卡**看当下，**设置页**单独调强调色。
 
 - 包名：`@local/local-dashboard`
-- 版本：1.0.0
+- 版本：1.1.0
 - 形态：宿主半边读系统与会话数据（`index.js`），客户端半边渲染（`client.js`）
 - 前身：`perf-console` + `resource-monitor`（2026-11-06 合并）
 
@@ -17,7 +17,7 @@
 - **月历**：当月网格，今天高亮。
 - **秒表**：开始 / 暂停 / 复位。
 - **天气**：open-meteo，定位到城市（默认北京）；离线时卡片显示占位，不阻塞其它卡片。
-- **桌宠接入区**：轮询 `/plugin-desk-pet/state`（400ms），显示立绘与气泡；未装桌宠时显示虚线占位「桌宠接入区」。
+- **桌宠接入区**：自动发现声明了 `dsh.pet` 的插件，聚合各源状态后取最近活跃的一只，400ms 轮询；未装桌宠时显示虚线占位「桌宠接入区」。
 
 ### 右缘悬浮卡（`shell.overlay`，order 11）
 
@@ -55,6 +55,7 @@ GET /plugin-local-dashboard/stats
 - CPU 用 `node:os` 的 tick 差值算，首帧可能为 `null`。
 - 会话 Token 来自 `session.snapshotEvents(seq)` 增量折叠 `assistant/message.usage`，只读、不写会话。
 - 立绘路由：`GET /plugin-local-dashboard/pet/<sprite>.webp`，素材取自 `assets/pet/`（与桌宠同源）。
+- 桌宠发现路由：`GET /plugin-local-dashboard/pet` → `{ sources: [{ id, route, sprites }] }`；宿主半扫描 `clientModules.graph()`，读取各包 `package.json` 的 `dsh.pet` 声明。
 
 预估金额（CNY / 百万 token，写死在 `DASH_PRICING`）：
 
@@ -67,9 +68,17 @@ GET /plugin-local-dashboard/stats
 
 ## 桌宠接入
 
-右侧卡与侧栏面板都会探测桌宠插件的状态路由。**未安装/未运行时自动降级为占位块**，不会报错。
+右侧卡与侧栏面板会自动发现声明了 `dsh.pet` 的插件，不需要用户手动配置。桌宠插件在自己的 `package.json` 里写：
 
-接入协议、状态枚举与立绘映射见 [desk-pet 接入说明](../desk-pet/docs/integration.md)。
+```json
+"dsh": {
+  "pet": {
+    "route": "/plugin-<id>/state"
+  }
+}
+```
+
+`route` 返回 `{ sessions: [{ state, text, ts }] }`。完整协议、状态枚举、立绘回退与降级规则见 [docs/pet-integration.md](docs/pet-integration.md)。
 
 ## 隐私
 
@@ -82,7 +91,7 @@ GET /plugin-local-dashboard/stats
 ## 安装
 
 ```powershell
-git clone https://github.com/nonomint/local-dashboard.git
+git clone https://github.com/lanternboatrune/local-dashboard.git
 & "D:\Deepseek\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add `
   "<clone 目录>\local-dashboard"
 ```

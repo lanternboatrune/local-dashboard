@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const ROUTE = '/plugin-local-dashboard/stats';
@@ -221,6 +221,84 @@ function snapshot(ctx) {
   };
 }
 
+/** 桌宠发现路由：返回所有声明了 dsh.pet 的插件及其状态路由。 */
+const PET_DISCOVERY_ROUTE = '/plugin-local-dashboard/pet';
+
+/** clientPath 指向客户端 bundle，从这里向上找 package.json 的层数上限。 */
+const PACKAGE_LOOKUP_DEPTH = 4;
+
+async function readPackageJson(startFile) {
+  let dir = path.dirname(startFile);
+  for (let depth = 0; depth < PACKAGE_LOOKUP_DEPTH; depth += 1) {
+    const manifest = path.join(dir, 'package.json');
+    try {
+      const info = await stat(manifest);
+      if (info.isFile()) {
+        const pkg = JSON.parse(await readFile(manifest, 'utf8'));
+        return { manifest, pkg };
+      }
+    } catch (error) {
+      // 这一层没有清单，继续向上。
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * 桌宠契约：插件在自己的 package.json 里写
+ *   "dsh": { "pet": { "route": "/plugin-<id>/state", "sprites": { "<state>": "<url>" } } }
+ * 只要求 route 以 / 开头；sprites 可选，缺省时控制台用内置立绘。
+ */
+async function discoverPetSources(ctx) {
+  let modules = null;
+  try {
+    modules = ctx.get('clientModules');
+  } catch (error) {
+    modules = null;
+  }
+  if (!modules || typeof modules.graph !== 'function' || typeof modules.clientPath !== 'function') {
+    return [];
+  }
+
+  let entries = [];
+  try {
+    const graph = modules.graph();
+    entries = graph && Array.isArray(graph.entries) ? graph.entries : [];
+  } catch (error) {
+    return [];
+  }
+
+  const sources = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const id = entry && typeof entry.id === 'string' ? entry.id : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+
+    let file = null;
+    try {
+      file = modules.clientPath(id);
+    } catch (error) {
+      file = null;
+    }
+    if (!file) continue;
+
+    const found = await readPackageJson(file);
+    const pet = found && found.pkg && found.pkg.dsh ? found.pkg.dsh.pet : null;
+    if (!pet || typeof pet.route !== 'string' || !pet.route.startsWith('/')) continue;
+
+    sources.push({
+      id,
+      route: pet.route,
+      sprites: pet.sprites && typeof pet.sprites === 'object' ? pet.sprites : null,
+    });
+  }
+  return sources;
+}
+
 export function apply(ctx) {
   ctx.effect(() => {
     pollGpu();
@@ -249,6 +327,35 @@ export function apply(ctx) {
         },
       }),
       'local-dashboard: stats route',
+    );
+
+    // 桌宠发现：扫 clientModules 图，找出声明 dsh.pet 的插件。
+    child.effect(
+      () => child.webServer.register({
+        kind: 'exact',
+        path: PET_DISCOVERY_ROUTE,
+        handler: async (req, res) => {
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.writeHead(405, { allow: 'GET, HEAD' });
+            res.end();
+            return;
+          }
+          let sources = [];
+          try {
+            sources = await discoverPetSources(ctx);
+          } catch (error) {
+            sources = [];
+          }
+          const body = JSON.stringify({ time: Date.now(), sources });
+          res.writeHead(200, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'content-length': Buffer.byteLength(body),
+          });
+          res.end(req.method === 'HEAD' ? undefined : body);
+        },
+      }),
+      'local-dashboard: pet discovery route',
     );
 
     // 桌宠立绘：固定文件列表，精确路由 + 长缓存。

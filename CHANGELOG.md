@@ -2,6 +2,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 未发布
+
+### 新增
+
+- 桌宠接入改为自动发现：宿主半扫描 `clientModules.graph()`，读取各插件 `package.json` 的 `dsh.pet` 声明并暴露 `/plugin-local-dashboard/pet`；客户端聚合多个源、取最近活跃的一只，未声明 `sprites` 时沿用内置立绘。
+- 新增 `docs/pet-integration.md`，写清清单声明、状态路由、枚举、立绘回退与降级规则。
+
 ## 1.1.0 — 2026-11-10
 
 ### 新增

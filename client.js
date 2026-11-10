@@ -587,8 +587,10 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    // ── 桌宠卡：复用 desk-pet 的状态接口，立绘由自己的路由提供 ──
-    const PET_ROUTE = '/plugin-desk-pet/state';
+    // ── 桌宠卡：自动发现所有声明 dsh.pet 的插件，聚合状态后取最近活跃的一只 ──
+    const PET_DISCOVERY_ROUTE = '/plugin-local-dashboard/pet';
+    const PET_LEGACY_ROUTE = '/plugin-desk-pet/state';
+    const PET_DISCOVERY_REFRESH = 10000;
     const PET_SPRITE_OF = {
       thinking: 'smile-closed',
       tool: 'typing',
@@ -623,37 +625,85 @@ window.__ModuleLoader__.load({
 .pcp-zone-hint{font-size:10.5px;opacity:.8}
 `;
 
+    /** 声明了 sprites 就用插件给的立绘，否则退回控制台内置的十张图。 */
+    function petSpriteUrl(source, state) {
+      const declared = source && source.sprites ? source.sprites[state] : null;
+      if (typeof declared === 'string' && declared) return declared;
+      return `/plugin-local-dashboard/pet/${PET_SPRITE_OF[state] || 'smile'}.webp`;
+    }
+
+    /** 读发现路由；旧版没有该路由时退回写死的 desk-pet 路径。 */
+    async function readPetSources() {
+      try {
+        const response = await fetch(PET_DISCOVERY_ROUTE, { headers: { accept: 'application/json' }, cache: 'no-store' });
+        if (!response.ok) throw new Error(`discovery ${response.status}`);
+        const data = await response.json();
+        const list = Array.isArray(data.sources)
+          ? data.sources.filter((item) => item && typeof item.route === 'string' && item.route.startsWith('/'))
+          : [];
+        if (list.length) return list;
+      } catch (error) {
+        // 控制台宿主半未就绪，或这是不认识发现路由的旧版本。
+      }
+      return [{ id: 'desk-pet', route: PET_LEGACY_ROUTE, sprites: null }];
+    }
+
     function PetCard() {
-      const [pet, setPet] = React.useState({ state: 'waiting', text: '', online: null });
+      const [pet, setPet] = React.useState({ state: 'waiting', text: '', sprite: null, online: null });
+      const sourcesRef = React.useRef(null);
 
       React.useEffect(() => {
         let alive = true;
         let timer = null;
+        let discovering = false;
 
-        async function poll() {
+        async function discover() {
+          if (discovering) return;
+          discovering = true;
           try {
-            const response = await fetch(PET_ROUTE, { headers: { accept: 'application/json' }, cache: 'no-store' });
-            if (!response.ok) {
-              if (alive) setPet((prev) => ({ ...prev, online: false }));
-              return;
-            }
-            const data = await response.json();
-            const rows = Array.isArray(data.sessions) ? data.sessions : [];
-            const pick = rows.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
-            if (!alive) return;
-            if (pick) setPet({ state: pick.state || 'waiting', text: pick.text || '', online: true });
-            else setPet((prev) => ({ ...prev, online: true }));
-          } catch (error) {
-            // 桌宠插件未安装/未就绪：切到占位区，保留上一状态以便恢复。
-            if (alive) setPet((prev) => ({ ...prev, online: false }));
+            const next = await readPetSources();
+            if (alive) sourcesRef.current = next;
+          } finally {
+            discovering = false;
           }
         }
 
-        poll();
+        async function poll() {
+          if (!sourcesRef.current) await discover();
+          const sources = sourcesRef.current || [];
+          let best = null;
+          let online = false;
+          for (const source of sources) {
+            try {
+              const response = await fetch(source.route, { headers: { accept: 'application/json' }, cache: 'no-store' });
+              if (!response.ok) continue;
+              const data = await response.json();
+              const rows = Array.isArray(data.sessions) ? data.sessions : [];
+              online = true;
+              for (const row of rows) {
+                const ts = Number(row && row.ts) || 0;
+                if (!best || ts > best.ts) best = { ts, row, source };
+              }
+            } catch (error) {
+              // 该源未就绪，继续下一个。
+            }
+          }
+          if (!alive) return;
+          if (!best) {
+            setPet((prev) => ({ ...prev, online }));
+            return;
+          }
+          const state = best.row.state || 'waiting';
+          setPet({ state, text: best.row.text || '', sprite: petSpriteUrl(best.source, state), online: true });
+        }
+
+        discover().then(() => { poll(); });
         timer = setInterval(poll, 400);
+        const discoverTimer = setInterval(discover, PET_DISCOVERY_REFRESH);
         return () => {
           alive = false;
           if (timer !== null) clearInterval(timer);
+          clearInterval(discoverTimer);
         };
       }, []);
 
@@ -667,15 +717,16 @@ window.__ModuleLoader__.load({
         ]);
       }
 
-      const sprite = PET_SPRITE_OF[pet.state] || 'smile';
+      const state = pet.state || 'waiting';
+      const sprite = pet.sprite || petSpriteUrl(null, state);
 
       return h('div', { className: 'pcp-box' }, [
         h('style', { key: 'css' }, PET_CSS),
         pet.text ? h('div', { key: 'bubble', className: 'pcp-bubble' }, pet.text) : null,
         h('img', {
           key: 'sprite',
-          className: `pcp-sprite pcp-${pet.state}`,
-          src: `/plugin-local-dashboard/pet/${sprite}.webp`,
+          className: `pcp-sprite pcp-${state}`,
+          src: sprite,
           alt: '',
           draggable: false,
         }),
