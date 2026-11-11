@@ -1279,18 +1279,21 @@ window.__ModuleLoader__.load({
       unit: 'c',       // 温度单位：c / f
       city: '',        // 空 = 自动定位
       pin: true,       // 右侧卡默认钉住
+      scale: 1,        // 右侧卡缩放：0.85 / 1 / 1.15 / 1.3
       rows: { cpu: true, memory: true, tokens: true, cost: true, clock: true },
     };
 
     function normalizePrefs(raw) {
       const input = raw && typeof raw === 'object' ? raw : {};
       const rows = input.rows && typeof input.rows === 'object' ? input.rows : {};
+      const scale = Number(input.scale);
       return {
         hour12: input.hour12 === true,
         seconds: input.seconds !== false,
         unit: input.unit === 'f' ? 'f' : 'c',
         city: typeof input.city === 'string' ? input.city : '',
         pin: input.pin !== false,
+        scale: Number.isFinite(scale) ? Math.min(1.4, Math.max(0.8, scale)) : 1,
         rows: {
           cpu: rows.cpu !== false,
           memory: rows.memory !== false,
@@ -1406,6 +1409,13 @@ window.__ModuleLoader__.load({
       rowTokens: { zh: 'Token', en: 'Tokens' },
       rowCost: { zh: '金额', en: 'Cost' },
       rowClock: { zh: '时钟', en: 'Clock' },
+      scaleGroup: { zh: '卡片尺寸', en: 'Card size' },
+      scale: { zh: '缩放', en: 'Scale' },
+      scaleHint: { zh: '按屏幕观感手动调，默认标准。', en: 'Adjust by eye; standard by default.' },
+      scaleS: { zh: '小', en: 'Small' },
+      scaleM: { zh: '标准', en: 'Standard' },
+      scaleL: { zh: '大', en: 'Large' },
+      scaleXL: { zh: '特大', en: 'Extra large' },
       resetAll: { zh: '全部恢复默认', en: 'Reset everything' },
       savedNote: { zh: '改动即时生效，保存在本机。', en: 'Changes apply instantly and are stored locally.' },
     };
@@ -1542,8 +1552,8 @@ window.__ModuleLoader__.load({
         transform: 'translateY(-50%)',
         zIndex: 1,
         boxSizing: 'border-box',
-        width: '204px',
-        padding: '12px',
+        width: 'calc(204px * var(--dash-scale, 1))',
+        padding: 'calc(12px * var(--dash-scale, 1))',
         border: '.5px solid var(--dsw-alias-border-l1)',
         borderRadius: 'var(--dsw-radius-lg, 12px)',
         background: 'var(--dsw-specific-menu, var(--dsw-alias-bg-overlay))',
@@ -1551,8 +1561,8 @@ window.__ModuleLoader__.load({
         backdropFilter: 'var(--dsw-menu-backdrop-filter, none)',
         color: 'var(--dsw-alias-label-secondary)',
         fontFamily: 'inherit',
-        fontSize: '12px',
-        lineHeight: '18px',
+        fontSize: 'calc(12px * var(--dash-scale, 1))',
+        lineHeight: 'calc(18px * var(--dash-scale, 1))',
         fontVariantNumeric: 'tabular-nums',
         pointerEvents: 'none',
         userSelect: 'none',
@@ -1560,7 +1570,7 @@ window.__ModuleLoader__.load({
       header: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' },
       dot: { width: '6px', height: '6px', borderRadius: '999px', background: 'var(--dsw-alias-state-success-primary)', flex: 'none' },
       headerText: {
-        fontSize: '11px',
+        fontSize: 'calc(11px * var(--dash-scale, 1))',
         letterSpacing: '.04em',
         textTransform: 'uppercase',
         color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))',
@@ -1571,7 +1581,7 @@ window.__ModuleLoader__.load({
       value: { color: 'var(--dsw-alias-label-primary)', fontWeight: 500, whiteSpace: 'nowrap' },
       sub: {
         marginTop: '1px',
-        fontSize: '11px',
+        fontSize: 'calc(11px * var(--dash-scale, 1))',
         color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
@@ -1581,7 +1591,7 @@ window.__ModuleLoader__.load({
       fill: { height: '100%', borderRadius: '999px', background: 'var(--dash-accent, var(--dsw-alias-brand-primary))', transition: 'width .3s ease' },
       divider: { height: '.5px', margin: '10px 0', background: 'var(--dsw-alias-border-l1)' },
       clock: { textAlign: 'center' },
-      time: { color: 'var(--dsw-alias-label-primary)', fontSize: '20px', fontWeight: 600, lineHeight: '26px', letterSpacing: '.02em' },
+      time: { color: 'var(--dsw-alias-label-primary)', fontSize: 'calc(20px * var(--dash-scale, 1))', fontWeight: 600, lineHeight: 'calc(26px * var(--dash-scale, 1))', letterSpacing: '.02em' },
       date: { marginTop: '2px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))' },
       handle: {
         position: 'fixed',
@@ -1778,7 +1788,7 @@ window.__ModuleLoader__.load({
         'aria-expanded': open,
         title: mt('aria'),
         'data-dsh-local-dashboard-handle': true,
-        style: { ...RC.handle, ...accentVars(accent), opacity: open ? 0 : 1 },
+        style: { ...RC.handle, ...accentVars(accent), '--dash-scale': String(prefs.scale || 1), opacity: open ? 0 : 1 },
         onMouseEnter: show,
         onMouseLeave: scheduleClose,
         onFocus: show,
@@ -1789,7 +1799,7 @@ window.__ModuleLoader__.load({
       const card = open
         ? h('aside', {
             key: 'card',
-            style: { ...RC.card, ...accentVars(accent), pointerEvents: 'auto' },
+            style: { ...RC.card, ...accentVars(accent), '--dash-scale': String(prefs.scale || 1), pointerEvents: 'auto' },
             role: 'group',
             'aria-label': mt('aria'),
             'data-dsh-local-dashboard': true,
@@ -1948,6 +1958,12 @@ window.__ModuleLoader__.load({
                 onClick: () => setPrefs({ rows: { [key]: !on } }),
               }, label);
             }))),
+          row('scale', at('scale'), seg('scale', [
+            { value: 0.85, label: at('scaleS') },
+            { value: 1, label: at('scaleM') },
+            { value: 1.15, label: at('scaleL') },
+            { value: 1.3, label: at('scaleXL') },
+          ], prefs.scale, (v) => setPrefs({ scale: v }))),
         ]),
 
         group('accent', at('accentGroup'), [

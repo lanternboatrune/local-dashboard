@@ -8,6 +8,7 @@
 
 - 桌宠接入改为自动发现：宿主半扫描 `clientModules.graph()`，读取各插件 `package.json` 的 `dsh.pet` 声明并暴露 `/plugin-local-dashboard/pet`；客户端聚合多个源、取最近活跃的一只，未声明 `sprites` 时沿用内置立绘。
 - 新增 `docs/pet-integration.md`，写清清单声明、状态路由、枚举、立绘回退与降级规则。
+- 右侧状态卡新增尺寸档位：小 85%、标准 100%、大 115%、特大 130%，在设置页手动调整，默认标准。
 
 ## 1.1.0 — 2026-11-10
 
